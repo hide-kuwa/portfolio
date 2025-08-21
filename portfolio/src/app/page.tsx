@@ -5,27 +5,33 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { Physics, RigidBody } from '@react-three/rapier'
 import type { CollisionEnterPayload, RapierRigidBody } from '@react-three/rapier'
 import { useRef, useState } from 'react'
+import { useControls } from 'leva'
 
 // --- Player コンポーネント (筆を拾う処理を追加) ---
 function Player() {
   const playerRef = useRef<RapierRigidBody | null>(null)
+
+  const { moveForce, jumpForce } = useControls('Player Controls', {
+    moveForce: { value: 0.8, min: 0.1, max: 5 },
+    jumpForce: { value: 10, min: 1, max: 30 },
+  })
 
   useFrame((state) => {
     if (!playerRef.current) return
     const keys = state.keyboard.pressed
     const impulse = { x: 0, y: 0, z: 0 }
     if (keys.ArrowLeft) {
-      impulse.x -= 0.5
+      impulse.x -= moveForce
     }
     if (keys.ArrowRight) {
-      impulse.x += 0.5
+      impulse.x += moveForce
     }
     playerRef.current.applyImpulse(impulse)
   })
 
   const jump = () => {
     if (playerRef.current) {
-      playerRef.current.applyImpulse({ x: 0, y: 10, z: 0 })
+      playerRef.current.applyImpulse({ x: 0, y: jumpForce, z: 0 })
     }
   }
 
