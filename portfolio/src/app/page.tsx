@@ -9,23 +9,16 @@ import { useRef, useState, useEffect } from "react";
 import { useKeyboardControls } from "@react-three/drei";
 import { useControls } from 'leva';
 
-// --- Player コンポーネント (全ての数字をLevaで調整可能に) ---
-function Player() {
+// --- Player コンポーネント (コヨーテタイムを実装) ---
+function Player({ moveForce, jumpForce, playerSize, sensorSize, sensorPosition, coyoteTimeDuration }) {
   const playerRef = useRef<any>(null);
-  const [isGrounded, setIsGrounded] = useState(false);
   const { left, right, jump } = useKeyboardControls((state) => state);
+  const coyoteTimeRef = useRef(0);
 
-  // --- Levaでの調整項目をここに集約！ ---
-  const { moveForce, jumpForce, playerSize, sensorSize, sensorPosition } = useControls('Player Controls', {
-    moveForce: { value: 0.8, min: 0.1, max: 10, step: 0.1 },
-    jumpForce: { value: 10, min: 1, max: 30 },
-    playerSize: { value: { x: 0.5, y: 0.5, z: 0.5 }, label: 'Player Size' },
-    sensorSize: { value: { x: 0.4, y: 0.1, z: 0.4 }, label: 'Sensor Size' },
-    sensorPosition: { value: { x: 0, y: -0.6, z: 0 }, label: 'Sensor Position' },
-  });
-
-  // 左右移動の処理
-  useFrame(() => {
+  useFrame((state) => {
+    if (coyoteTimeRef.current > 0) {
+      coyoteTimeRef.current -= state.clock.getDelta();
+    }
     if (!playerRef.current) return;
     playerRef.current.wakeUp();
     const impulse = { x: 0, y: 0, z: 0 };
@@ -39,13 +32,12 @@ function Player() {
     playerRef.current.applyImpulse(impulse, true);
   });
   
-  // ジャンプ処理
   useEffect(() => {
-    if (jump && isGrounded) {
+    if (jump && coyoteTimeRef.current > 0) {
       playerRef.current?.applyImpulse({ x: 0, y: jumpForce, z: 0 });
-      setIsGrounded(false);
+      coyoteTimeRef.current = 0;
     }
-  }, [jump, isGrounded, jumpForce]);
+  }, [jump, jumpForce]);
 
   return (
     <RigidBody
@@ -54,19 +46,15 @@ function Player() {
       colliders={false}
       name="player"
     >
-      {/* キャラクター本体の当たり判定 (Levaでサイズ調整) */}
       <CuboidCollider args={[playerSize.x, playerSize.y, playerSize.z]} />
-
-      {/* 足元の接地判定センサー (Levaでサイズと位置を調整) */}
       <CuboidCollider
         args={[sensorSize.x, sensorSize.y, sensorSize.z]}
         position={[sensorPosition.x, sensorPosition.y, sensorPosition.z]}
         sensor
-        onIntersectionEnter={() => setIsGrounded(true)}
-        onIntersectionExit={() => setIsGrounded(false)}
+        onIntersectionEnter={() => {
+          coyoteTimeRef.current = coyoteTimeDuration;
+        }}
       />
-
-      {/* キャラクターの見た目のサイズもLevaと連動 */}
       <Box args={[playerSize.x * 2, playerSize.y * 2, playerSize.z * 2]}>
         <meshStandardMaterial color="black" />
       </Box>
@@ -121,6 +109,17 @@ function Brush() {
 export default function Home() {
   const [hasBrush, setHasBrush] = useState(false);
 
+  const playerControls = useControls('Player Controls', {
+    moveForce: { value: 0.8, min: 0.1, max: 10, step: 0.1 },
+    jumpForce: { value: 10, min: 1, max: 30 },
+    playerSize: { value: { x: 0.5, y: 0.5, z: 0.5 }, label: 'Player Size' },
+    sensorSize: { value: { x: 0.4, y: 0.1, z: 0.4 }, label: 'Sensor Size' },
+    sensorPosition: { value: { x: 0, y: -0.6, z: 0 }, label: 'Sensor Position' },
+    coyoteTimeDuration: { value: 0.1, min: 0, max: 0.5, step: 0.01, label: 'Coyote Time' },
+  });
+
+  const playerKey = JSON.stringify(playerControls);
+
   const handleCollision = (payload) => {
     if (
       (payload.collider.rigidBodyObject?.name === "player" && payload.other.rigidBodyObject?.name === "brush") ||
@@ -135,12 +134,11 @@ export default function Home() {
   const keyboardMap = [
     { name: "left", keys: ["ArrowLeft", "a", "A"] },
     { name: "right", keys: ["ArrowRight", "d", "D"] },
-    { name: "jump", keys: ["Space","ArrowUp"] },
+    { name: "jump", keys: ["Space", "ArrowUp"] },
   ];
 
   return (
     <div style={{ width: "100vw", height: "100vh" }}>
-      
       <KeyboardControls map={keyboardMap}>
         <Canvas camera={{ position: [0, 5, 20], fov: 60 }}>
           <ambientLight intensity={1} />
@@ -148,7 +146,7 @@ export default function Home() {
           <OrbitControls />
 
           <Physics debug onCollisionEnter={handleCollision}>
-            <Player />
+            <Player key={playerKey} {...playerControls} />
             <Floor />
             <Wall position={[-15, 5, 0]} />
             <Wall position={[15, 5, 0]} />
