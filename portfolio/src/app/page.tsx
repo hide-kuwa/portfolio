@@ -1,52 +1,73 @@
 'use client'
 
-import { Box, OrbitControls } from '@react-three/drei'
+import { Box, OrbitControls, useKeyboardControls } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Physics, RigidBody } from '@react-three/rapier'
+import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import type { CollisionEnterPayload, RapierRigidBody } from '@react-three/rapier'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useControls } from 'leva'
 
-// --- Player コンポーネント (筆を拾う処理を追加) ---
-function Player() {
-  const playerRef = useRef<RapierRigidBody | null>(null)
+// --- Player コンポーネント (コヨーテタイムを実装) ---
+type Vec3 = { x: number; y: number; z: number }
 
-  const { moveForce, jumpForce } = useControls('Player Controls', {
-    moveForce: { value: 0.8, min: 0.1, max: 5 },
-    jumpForce: { value: 10, min: 1, max: 30 },
-  })
+interface PlayerProps {
+  moveForce: number
+  jumpForce: number
+  playerSize: Vec3
+  sensorSize: Vec3
+  sensorPosition: Vec3
+  coyoteTimeDuration: number
+}
+
+function Player({
+  moveForce,
+  jumpForce,
+  playerSize,
+  sensorSize,
+  sensorPosition,
+  coyoteTimeDuration,
+}: PlayerProps) {
+  const playerRef = useRef<RapierRigidBody | null>(null)
+  const { left, right, jump } = useKeyboardControls((state) => state)
+  const coyoteTimeRef = useRef(0)
 
   useFrame((state) => {
     if (!playerRef.current) return
-    const keys = state.keyboard.pressed
+
+    if (coyoteTimeRef.current > 0) {
+      coyoteTimeRef.current -= state.clock.getDelta()
+    }
+
     const impulse = { x: 0, y: 0, z: 0 }
-    if (keys.ArrowLeft) {
+    if (left) {
       impulse.x -= moveForce
     }
-    if (keys.ArrowRight) {
+    if (right) {
       impulse.x += moveForce
     }
     playerRef.current.applyImpulse(impulse)
   })
 
-  const jump = () => {
-    if (playerRef.current) {
+  useEffect(() => {
+    if (!playerRef.current) return
+    if (jump && coyoteTimeRef.current > 0) {
       playerRef.current.applyImpulse({ x: 0, y: jumpForce, z: 0 })
+      coyoteTimeRef.current = 0
     }
-  }
-
-  // グローバルなイベントリスナーはuseEffect内で管理するのがReactの作法
-  // ただし、このチュートリアルのシンプルさのために今回はこのままにします
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space') {
-      jump()
-    }
-  })
+  }, [jump, jumpForce])
 
   return (
-    // RigidBodyに名前をつけて、衝突判定で識別できるようにします
-    <RigidBody ref={playerRef} position={[0, 5, 0]} colliders="cuboid" name="player">
-      <Box args={[1, 1, 1]}>
+    <RigidBody ref={playerRef} position={[0, 5, 0]} colliders={false} name="player">
+      <CuboidCollider args={[playerSize.x, playerSize.y, playerSize.z]} />
+      <CuboidCollider
+        args={[sensorSize.x, sensorSize.y, sensorSize.z]}
+        position={[sensorPosition.x, sensorPosition.y, sensorPosition.z]}
+        sensor
+        onIntersectionEnter={() => {
+          coyoteTimeRef.current = coyoteTimeDuration
+        }}
+      />
+      <Box args={[playerSize.x * 2, playerSize.y * 2, playerSize.z * 2]}>
         <meshStandardMaterial color="black" />
       </Box>
     </RigidBody>
@@ -104,6 +125,15 @@ export default function Home() {
   // 「筆を持っているか」を記憶する状態
   const [hasBrush, setHasBrush] = useState(false)
 
+  const playerControls = useControls('Player Controls', {
+    moveForce: { value: 0.8, min: 0.1, max: 10, step: 0.1 },
+    jumpForce: { value: 10, min: 1, max: 30 },
+    playerSize: { value: { x: 0.5, y: 0.5, z: 0.5 }, label: 'Player Size' },
+    sensorSize: { value: { x: 0.4, y: 0.1, z: 0.4 }, label: 'Sensor Size' },
+    sensorPosition: { value: { x: 0, y: -0.6, z: 0 }, label: 'Sensor Position' },
+    coyoteTimeDuration: { value: 0.1, min: 0, max: 0.5, step: 0.01, label: 'Coyote Time' },
+  })
+
   // オブジェクト同士が衝突した時に呼ばれる関数
   const handleCollision = (payload: CollisionEnterPayload) => {
     // プレイヤーが筆に触れたかどうかを判定
@@ -126,7 +156,7 @@ export default function Home() {
 
         {/* Physicsコンポーネントに衝突イベントの処理を任せる */}
         <Physics onCollisionEnter={handleCollision}>
-          <Player />
+          <Player {...playerControls} />
           <Floor />
           <Wall position={[-15, 5, 0]} />
           <Wall position={[15, 5, 0]} />
